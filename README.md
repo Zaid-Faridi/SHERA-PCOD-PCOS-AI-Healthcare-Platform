@@ -302,12 +302,15 @@ chmod +x start.sh
 
 ## 🔒 Security & Privacy Notice
 
-SHEra prioritizes health data security:
-*   Passwords and sessions are protected via strong hashing and secure tokens.
+SHEra prioritizes health data security and patient autonomy:
+*   Passwords and sessions are protected via strong bcrypt hashing, strict JWT verification, rate limiting, and secure HTTP headers.
 *   Ultrasound scans uploaded for diagnostic evaluation are processed entirely in temporary memory using PIL and NumPy memory buffers.
 *   **No images are saved to disk** during inference. They are never permanently stored, logged, or retained for subsequent training.
 *   File uploads are hard-capped at 10 MB (`MAX_CONTENT_LENGTH = 10 * 1024 * 1024`).
+*   **Patient Data Export:** Authenticated users can export and download their complete profile and health records as JSON at any time via `GET /api/health/export`.
+*   **Account & Data Deletion:** Users have the right to be forgotten. An authenticated user can permanently erase their account and all associated health tracking history via `DELETE /api/users/me` with password re-authentication.
 
 ---
 
 *Built to empower women with transparent, multi-modal AI healthcare intelligence.* 🌸
+

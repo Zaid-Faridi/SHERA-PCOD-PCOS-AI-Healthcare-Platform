@@ -1,23 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Doctor = require('../models/Doctor');
-const jwt = require('jsonwebtoken');
-
-// Middleware to verify token
-const verifyToken = (req, res, next) => {
-  try {
-    const token = req.headers.authorization ? req.headers.authorization.split(' ')[1] : null;
-    if (!token) {
-      return res.status(401).json({ message: 'Not authorized, no token' });
-    }
-    
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret123');
-    req.userId = decoded.id;
-    next();
-  } catch (error) {
-    res.status(401).json({ message: 'Not authorized, token failed' });
-  }
-};
+const { verifyToken } = require('../middleware/auth');
 
 // @route   GET /api/doctors
 // @desc    Get all doctors
@@ -27,8 +11,8 @@ router.get('/', async (req, res) => {
     const doctors = await Doctor.find({});
     res.json(doctors);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Fetch doctors error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
@@ -81,8 +65,8 @@ router.get('/nearby', verifyToken, async (req, res) => {
     
     res.json(nearbyDoctors);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Nearby doctors error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
@@ -99,8 +83,8 @@ router.get('/:id', async (req, res) => {
     
     res.json(doctor);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Get doctor error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
@@ -142,8 +126,8 @@ router.post('/:id/reviews', verifyToken, async (req, res) => {
     
     res.status(201).json({ message: 'Review added' });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Add review error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
@@ -172,8 +156,8 @@ router.post('/', async (req, res) => {
     
     res.status(201).json(doctor);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Create doctor error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 

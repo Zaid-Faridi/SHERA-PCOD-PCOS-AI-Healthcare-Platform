@@ -1,23 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const CommunityPost = require('../models/Community');
-const jwt = require('jsonwebtoken');
-
-// Middleware to verify token
-const verifyToken = (req, res, next) => {
-  try {
-    const token = req.headers.authorization ? req.headers.authorization.split(' ')[1] : null;
-    if (!token) {
-      return res.status(401).json({ message: 'Not authorized, no token' });
-    }
-    
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret123');
-    req.userId = decoded.id;
-    next();
-  } catch (error) {
-    res.status(401).json({ message: 'Not authorized, token failed' });
-  }
-};
+const { verifyToken } = require('../middleware/auth');
 
 // @route   GET /api/community/posts
 // @desc    Get all community posts with pagination
@@ -47,8 +31,8 @@ router.get('/posts', async (req, res) => {
       currentPage: page
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Fetch posts error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
@@ -67,8 +51,8 @@ router.get('/posts/:id', async (req, res) => {
     
     res.json(post);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Fetch post by id error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
@@ -93,8 +77,8 @@ router.post('/posts', verifyToken, async (req, res) => {
     
     res.status(201).json(populatedPost);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Create post error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
@@ -125,8 +109,8 @@ router.post('/posts/:id/comments', verifyToken, async (req, res) => {
     
     res.status(201).json(updatedPost);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Add comment error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
@@ -156,8 +140,8 @@ router.put('/posts/:id/like', verifyToken, async (req, res) => {
     
     res.json({ likes: post.likes.length, liked: !alreadyLiked });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Like post error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
@@ -172,8 +156,8 @@ router.get('/user/posts', verifyToken, async (req, res) => {
     
     res.json(posts);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Fetch user posts error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
@@ -193,12 +177,16 @@ router.delete('/posts/:id', verifyToken, async (req, res) => {
       return res.status(401).json({ message: 'User not authorized' });
     }
     
-    await post.remove();
+    if (typeof post.deleteOne === 'function') {
+      await post.deleteOne();
+    } else {
+      await CommunityPost.findByIdAndDelete(req.params.id);
+    }
     
     res.json({ message: 'Post removed' });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Delete post error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
