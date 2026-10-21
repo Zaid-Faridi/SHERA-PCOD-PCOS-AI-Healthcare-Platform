@@ -1,159 +1,289 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { apiRequest } from '../../api';
 
-const Assessment = ({ userData, setUserData, symptomOptions, lifestyleOptions, calculateBMI, assessRisk }) => {
-  const [result, setResult] = React.useState(null);
-  const [loading, setLoading] = React.useState(false);
+const Assessment = ({ userData = {}, setUserData, symptomOptions = [], lifestyleOptions = [], calculateBMI }) => {
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   const handleInputChange = (e) => {
     const { name, value, type } = e.target;
-    const parsedValue = type === 'number' ? (value === '' ? '' : Number(value)) : value;
-    setUserData(prev => ({ ...prev, [name]: parsedValue }));
+    let parsedValue = value;
+    if (type === 'number') {
+      parsedValue = value === '' ? '' : Number(value);
+      if (Number.isNaN(parsedValue)) parsedValue = '';
+    }
+    if (setUserData) {
+      setUserData(prev => ({ ...prev, [name]: parsedValue }));
+    }
   };
 
   const handleSubmit = async () => {
     setLoading(true);
+    setError(null);
     setResult(null);
-    const age = userData.age || 25;
-    const cycle = userData.cycleRegularity === 'regular' ? 28 : 35;
-    const ratio = 1.5; // placeholder ratio
-    
-    const formData = {
-      age,
-      height: userData.height,
-      weight: userData.weight,
-      cycle,
-      ratio
-    };
 
-    console.log("Sending:", formData);
+    const ageNum = Number(userData.age);
+    const heightNum = Number(userData.height);
+    const weightNum = Number(userData.weight);
+    const cycleNum = Number(userData.cycle || (userData.cycleRegularity === 'regular' ? 28 : 35));
+    const ratioNum = Number(userData.ratio || 0.85);
+
+    const formData = {};
+    if (Number.isFinite(ageNum) && ageNum >= 10 && ageNum <= 60) formData.age = ageNum;
+    if (Number.isFinite(heightNum) && heightNum >= 120 && heightNum <= 220) formData.height = heightNum;
+    if (Number.isFinite(weightNum) && weightNum >= 25 && weightNum <= 200) formData.weight = weightNum;
+    if (Number.isFinite(cycleNum) && cycleNum >= 15 && cycleNum <= 90) formData.cycle = cycleNum;
+    if (Number.isFinite(ratioNum) && ratioNum >= 0.5 && ratioNum <= 1.5) formData.ratio = ratioNum;
 
     try {
       const data = await apiRequest('/api/assess', {
-        method: "POST",
+        method: 'POST',
         body: JSON.stringify(formData)
       });
-      console.log("Response:", data);
-      
       setResult(data);
-      
-      // Auto scroll to result smooth
+
       setTimeout(() => {
         window.scrollTo({
           top: document.body.scrollHeight,
-          behavior: "smooth"
+          behavior: 'smooth'
         });
       }, 100);
     } catch (err) {
-      console.error('Assessment error:', err);
+      console.error('Assessment submission error:', err);
+      setError(err.message || 'Failed to complete risk assessment. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
   };
 
-
   const handleSymptomChange = (symptom) => {
+    if (!setUserData) return;
     setUserData(prev => {
-      const exists = prev.symptoms.includes(symptom);
-      const updatedSymptoms = exists ? prev.symptoms.filter(s => s !== symptom) : [...prev.symptoms, symptom];
-      return { ...prev, symptoms: updatedSymptoms };
+      const current = prev.symptoms || [];
+      const exists = current.includes(symptom);
+      const updated = exists ? current.filter(s => s !== symptom) : [...current, symptom];
+      return { ...prev, symptoms: updated };
     });
   };
 
   const handleLifestyleChange = (factor) => {
+    if (!setUserData) return;
     setUserData(prev => {
-      const exists = prev.lifestyleFactors.includes(factor);
-      const updatedFactors = exists ? prev.lifestyleFactors.filter(f => f !== factor) : [...prev.lifestyleFactors, factor];
-      return { ...prev, lifestyleFactors: updatedFactors };
+      const current = prev.lifestyleFactors || [];
+      const exists = current.includes(factor);
+      const updated = exists ? current.filter(f => f !== factor) : [...current, factor];
+      return { ...prev, lifestyleFactors: updated };
     });
   };
 
+  const getSeverityColor = (severity) => {
+    switch (String(severity || '').toLowerCase()) {
+      case 'high':
+        return 'text-rose-400';
+      case 'moderate':
+        return 'text-amber-400';
+      case 'low':
+      case 'minimal':
+      default:
+        return 'text-emerald-400';
+    }
+  };
+
   return (
-    <div className="p-6">
-      <h2 className="text-2xl font-bold text-blue-500 mb-6">PCOS Risk Assessment</h2>
+    <div className="p-6 max-w-2xl mx-auto">
+      <h2 className="text-2xl font-bold text-teal-400 mb-6">PCOS Risk Assessment</h2>
+      
       <div className="flex flex-col gap-6">
         <div>
-          <label className="block text-sm font-medium mb-1">Age</label>
-          <input type="number" name="age" value={userData.age} onChange={handleInputChange} className="w-full p-2 border border-gray-300 rounded text-sm" placeholder="Enter your age" />
+          <label className="block text-sm font-medium mb-1 text-slate-200">Age (10–60 yrs)</label>
+          <input
+            type="number"
+            name="age"
+            min="10"
+            max="60"
+            step="1"
+            value={userData.age ?? ''}
+            onChange={handleInputChange}
+            className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-teal-400"
+            placeholder="e.g. 25"
+          />
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Weight (kg)</label>
-            <input type="number" name="weight" value={userData.weight} onChange={handleInputChange} className="w-full p-2 border border-gray-300 rounded text-sm" placeholder="Weight in kg" />
+            <label className="block text-sm font-medium mb-1 text-slate-200">Weight (25–200 kg)</label>
+            <input
+              type="number"
+              name="weight"
+              min="25"
+              max="200"
+              step="0.1"
+              value={userData.weight ?? ''}
+              onChange={handleInputChange}
+              className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-teal-400"
+              placeholder="e.g. 62"
+            />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Height (cm)</label>
-            <input type="number" name="height" value={userData.height} onChange={handleInputChange} className="w-full p-2 border border-gray-300 rounded text-sm" placeholder="Height in cm" />
+            <label className="block text-sm font-medium mb-1 text-slate-200">Height (120–220 cm)</label>
+            <input
+              type="number"
+              name="height"
+              min="120"
+              max="220"
+              step="0.5"
+              value={userData.height ?? ''}
+              onChange={handleInputChange}
+              className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-teal-400"
+              placeholder="e.g. 165"
+            />
           </div>
         </div>
 
-        {userData.weight && userData.height && (
-          <div className="bg-gray-100 p-2 rounded text-sm">
-            Your BMI: <span className="font-medium">{calculateBMI()}</span>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-1 text-slate-200">Cycle Length (15–90 days)</label>
+            <input
+              type="number"
+              name="cycle"
+              min="15"
+              max="90"
+              step="1"
+              value={userData.cycle ?? ''}
+              onChange={handleInputChange}
+              className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-teal-400"
+              placeholder="e.g. 28"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1 text-slate-200">Waist:Hip Ratio (0.5–1.5)</label>
+            <input
+              type="number"
+              name="ratio"
+              min="0.5"
+              max="1.5"
+              step="0.01"
+              value={userData.ratio ?? ''}
+              onChange={handleInputChange}
+              className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-teal-400"
+              placeholder="e.g. 0.85"
+            />
+          </div>
+        </div>
+
+        {userData.weight && userData.height && calculateBMI && (
+          <div className="bg-slate-800/80 border border-slate-700 p-3 rounded-lg text-sm text-slate-300">
+            Calculated BMI: <span className="font-semibold text-teal-300">{calculateBMI()}</span>
           </div>
         )}
 
         <div>
-          <label className="block text-sm font-medium mb-1">Menstrual Cycle Regularity</label>
-          <select name="cycleRegularity" value={userData.cycleRegularity} onChange={(e) => setUserData(prev => ({ ...prev, cycleRegularity: e.target.value }))} className="w-full p-2 border border-gray-300 rounded text-sm">
-            <option value="">Select an option</option>
-            <option value="regular">Regular (21-35 days)</option>
-            <option value="irregular">Irregular</option>
-            <option value="absent">Absent (no periods)</option>
+          <label className="block text-sm font-medium mb-1 text-slate-200">Menstrual Cycle Regularity</label>
+          <select
+            name="cycleRegularity"
+            value={userData.cycleRegularity || ''}
+            onChange={(e) => setUserData && setUserData(prev => ({ ...prev, cycleRegularity: e.target.value }))}
+            className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-teal-400"
+          >
+            <option value="">Select regularity</option>
+            <option value="regular">Regular (21–35 days)</option>
+            <option value="irregular">Irregular (&gt;35 days)</option>
+            <option value="absent">Absent (amenorrhea)</option>
           </select>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1">Select Symptoms You Experience</label>
-          <div className="grid grid-cols-2 gap-2 mt-1">
-            {symptomOptions.map(symptom => (
-              <label key={symptom} className="flex items-center gap-2">
-                <input type="checkbox" checked={userData.symptoms.includes(symptom)} onChange={() => handleSymptomChange(symptom)} className="border border-gray-300 rounded" />
-                <span className="text-sm">{symptom}</span>
-              </label>
-            ))}
+        {symptomOptions && symptomOptions.length > 0 && (
+          <div>
+            <label className="block text-sm font-medium mb-2 text-slate-200">Reported Symptoms</label>
+            <div className="grid grid-cols-2 gap-2">
+              {symptomOptions.map(symptom => (
+                <label key={symptom} className="flex items-center gap-2 p-2 rounded bg-slate-800/50 border border-slate-700/60 text-slate-300 text-sm cursor-pointer hover:bg-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={(userData.symptoms || []).includes(symptom)}
+                    onChange={() => handleSymptomChange(symptom)}
+                    className="rounded border-slate-600 text-teal-500 focus:ring-teal-400"
+                  />
+                  <span>{symptom}</span>
+                </label>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        <div>
-          <label className="block text-sm font-medium mb-1">Lifestyle Factors</label>
-          <div className="grid grid-cols-2 gap-2 mt-1">
-            {lifestyleOptions.map(factor => (
-              <label key={factor} className="flex items-center gap-2">
-                <input type="checkbox" checked={userData.lifestyleFactors.includes(factor)} onChange={() => handleLifestyleChange(factor)} className="border border-gray-300 rounded" />
-                <span className="text-sm">{factor}</span>
-              </label>
-            ))}
+        {lifestyleOptions && lifestyleOptions.length > 0 && (
+          <div>
+            <label className="block text-sm font-medium mb-2 text-slate-200">Lifestyle Habits</label>
+            <div className="grid grid-cols-2 gap-2">
+              {lifestyleOptions.map(factor => (
+                <label key={factor} className="flex items-center gap-2 p-2 rounded bg-slate-800/50 border border-slate-700/60 text-slate-300 text-sm cursor-pointer hover:bg-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={(userData.lifestyleFactors || []).includes(factor)}
+                    onChange={() => handleLifestyleChange(factor)}
+                    className="rounded border-slate-600 text-teal-500 focus:ring-teal-400"
+                  />
+                  <span>{factor}</span>
+                </label>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        <button 
-          onClick={handleSubmit} 
+        {error && (
+          <div className="p-4 rounded-lg bg-rose-950/60 border border-rose-800 text-rose-200 text-sm flex flex-col gap-2">
+            <span>{error}</span>
+            <button
+              onClick={handleSubmit}
+              disabled={loading}
+              className="self-start text-xs font-semibold px-3 py-1 bg-rose-700 text-white rounded hover:bg-rose-600 transition"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        <button
+          onClick={handleSubmit}
           disabled={loading}
-          className={`w-full py-3 rounded font-medium transition-all duration-300 ${loading ? 'bg-slate-600 text-slate-300 cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-600 hover:shadow-lg hover:-translate-y-0.5'}`}
+          className={`w-full py-3.5 rounded-lg font-semibold transition-all duration-300 shadow-md ${
+            loading
+              ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+              : 'bg-teal-500 text-slate-950 hover:bg-teal-400 hover:shadow-teal-500/25'
+          }`}
         >
-          {loading ? "Analyzing..." : "Assess My Risk"}
+          {loading ? 'Evaluating Risk Profile...' : 'Assess My Risk'}
         </button>
 
         {result && (
-          <div className="mt-6 p-6 rounded-xl bg-[#0f2a36] shadow-lg border border-teal-500/20">
-            <h2 className="text-2xl font-bold text-teal-400 mb-4">Prediction Result</h2>
-            <p className="text-white text-lg mb-2">
-              Risk Level:{' '}
-              <span className={`font-semibold ${
-                result.diagnosis?.toLowerCase().includes('higher') || result.diagnosis === 'PCOS' ? 'text-red-400' :
-                result.diagnosis?.toLowerCase().includes('moderate') || result.diagnosis === 'PCOD' ? 'text-pink-400' :
-                'text-green-400'
-              }`}>
-                {result.diagnosis}
+          <div className="mt-4 p-6 rounded-xl bg-slate-800/90 shadow-xl border border-slate-700 flex flex-col gap-3">
+            <h3 className="text-xl font-bold text-white">Assessment Result</h3>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-300 text-sm">Diagnosis / Summary:</span>
+              <span className="text-white font-medium">{result.diagnosis || 'Analysis completed'}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-300 text-sm">Severity:</span>
+              <span className={`font-bold ${getSeverityColor(result.severity)}`}>
+                {result.severity || 'Undetermined'}
               </span>
-            </p>
-            <p className="text-slate-300 text-md">
-              Confidence: {result.confidence}%
-            </p>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-300 text-sm">Risk score:</span>
+              <span className="text-white font-semibold">{result.risk_score ?? result.confidence ?? 0}%</span>
+            </div>
+            {result.message && (
+              <p className="text-xs text-slate-300 mt-2 p-2.5 bg-slate-900/60 rounded border border-slate-700/60">
+                {result.message}
+              </p>
+            )}
           </div>
         )}
+
+        <p className="text-xs text-slate-400 leading-relaxed text-center mt-2 border-t border-slate-800 pt-4">
+          ⚠️ <strong>Medical Disclaimer:</strong> This tool is for educational and screening purposes only and is not a clinical medical diagnosis. Always consult a licensed healthcare professional for medical advice, diagnosis, or treatment.
+        </p>
       </div>
     </div>
   );

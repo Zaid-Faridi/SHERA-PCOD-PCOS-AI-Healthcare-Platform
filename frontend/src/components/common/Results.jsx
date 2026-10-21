@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PDFDownloadLink } from '@react-pdf/renderer';
 import { ClinicalReportPDF } from '../../utils/pdfGenerator';
 
@@ -23,63 +23,109 @@ const Ic = ({ n, s = 24, c = 'currentColor' }) => {
   );
 };
 
+// ── CIRCLE PROGRESS COMPONENT (Moved outside to prevent animation reset on re-render) ──
+const CircleProgress = ({ val = 0, size = 160, stroke = 12, color, delay = 0, animate = false, label = 'Risk score' }) => {
+  const radius = (size - stroke) / 2;
+  const circ = 2 * Math.PI * radius;
+  const safeVal = Math.max(0, Math.min(100, Number(val) || 0));
+  const dashoffset = animate ? circ - (safeVal / 100) * circ : circ;
+
+  return (
+    <div
+      role="img"
+      aria-label={`${label}: ${safeVal}%`}
+      style={{ position: 'relative', width: size, height: size }}
+    >
+      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+        <circle cx={size / 2} cy={size / 2} r={radius} stroke="rgba(0,0,0,0.06)" strokeWidth={stroke} fill="none" />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke={color}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          fill="none"
+          strokeDasharray={circ}
+          strokeDashoffset={dashoffset}
+          style={{ transition: `stroke-dashoffset 1.5s cubic-bezier(0.34, 1.56, 0.64, 1) ${delay}s` }}
+        />
+      </svg>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <span style={{ fontSize: size * 0.25, fontWeight: 900, color: '#1A0A2E', lineHeight: 1 }}>
+          {safeVal}
+          <span style={{ fontSize: '0.4em', color: '#9B6B8A' }}>%</span>
+        </span>
+      </div>
+    </div>
+  );
+};
+
 const Results = ({ riskAssessment, setActiveTab }) => {
   const [animate, setAnimate] = useState(false);
-  const reportRef = useRef(null);
 
   useEffect(() => {
-    setTimeout(() => setAnimate(true), 100);
+    const timer = setTimeout(() => setAnimate(true), 100);
     window.scrollTo(0, 0);
+    return () => clearTimeout(timer);
   }, []);
 
   if (!riskAssessment) return null;
 
   const { score, level, tabular_score, image_score, diagnosis, confidence, recommendation, heatmap_image } = riskAssessment;
   const imageProvided = riskAssessment.image_provided !== false && riskAssessment.image_score !== null && riskAssessment.image_score !== undefined;
-  const isMostlyMissing = Boolean(
-    riskAssessment.limited_input ||
-    (riskAssessment.formData && Object.values(riskAssessment.formData).filter(v => v !== null && v !== undefined && v !== '' && v !== false).length < 4)
-  );
 
-  // Determine colors based on risk level
-  let themeColor = '#059669'; // Low (Emerald)
+  // Input completeness check: prefer server-computed input_completeness (< 0.5), fallback to old heuristic
+  const hasInputCompleteness = typeof riskAssessment.input_completeness === 'number';
+  const isMostlyMissing = hasInputCompleteness
+    ? riskAssessment.input_completeness < 0.5
+    : Boolean(
+        riskAssessment.limited_input ||
+        (riskAssessment.formData && Object.values(riskAssessment.formData).filter(v => v !== null && v !== undefined && v !== '' && v !== false).length < 4)
+      );
+
+  // Normalize level and determine colors
+  const rawLevel = String(level || 'Low').toLowerCase();
+  let themeColor = '#059669'; // Low / Minimal (Emerald)
   let bgGradients = ['rgba(5,150,105,0.1)', 'rgba(5,150,105,0.02)'];
-  
-  if (level === 'High') {
+
+  if (rawLevel === 'high') {
     themeColor = '#E11D48'; // Rose
     bgGradients = ['rgba(225,29,72,0.12)', 'rgba(236,72,153,0.03)'];
-  } else if (level === 'Moderate') {
-    themeColor = '#F59E0B'; // Amber
-    bgGradients = ['rgba(245,158,11,0.12)', 'rgba(251,191,36,0.03)'];
+  } else if (rawLevel === 'moderate') {
+    // High-contrast Amber-700 / WCAG compliant against light backgrounds
+    themeColor = '#B45309';
+    bgGradients = ['rgba(245,158,11,0.14)', 'rgba(251,191,36,0.04)'];
   }
 
-  // The custom PDF generation is now handled by PDFDownloadLink and ClinicalReportPDF
+  // Handle confidence of 0 correctly: don't fall back to score when confidence is explicitly 0
+  const overallRiskScore = (confidence !== null && confidence !== undefined && !Number.isNaN(confidence))
+    ? Math.round(confidence)
+    : (score !== null && score !== undefined && !Number.isNaN(score) ? Math.round(score) : 0);
 
-  const CircleProgress = ({ val, size = 160, stroke = 12, color, delay = 0 }) => {
-    const radius = (size - stroke) / 2;
-    const circ = 2 * Math.PI * radius;
-    const dashoffset = animate ? circ - (val / 100) * circ : circ;
+  // Sanitize PDF filename (letters, numbers, dash, underscore only)
+  const patientNameRaw = riskAssessment.patientName || (riskAssessment.formData && riskAssessment.formData.name) || 'Patient';
+  const sanitizedPatientName = String(patientNameRaw)
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '') || 'Patient';
+  const sanitizedPdfFileName = `${sanitizedPatientName}-Clinical_report.pdf`;
 
-    return (
-      <div style={{ position: 'relative', width: size, height: size }}>
-        <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
-          <circle cx={size/2} cy={size/2} r={radius} stroke="rgba(0,0,0,0.05)" strokeWidth={stroke} fill="none" />
-          <circle 
-            cx={size/2} cy={size/2} r={radius} 
-            stroke={color} strokeWidth={stroke} strokeLinecap="round" fill="none"
-            strokeDasharray={circ} strokeDashoffset={dashoffset}
-            style={{ transition: `stroke-dashoffset 1.5s cubic-bezier(0.34, 1.56, 0.64, 1) ${delay}s` }}
-          />
-        </svg>
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          <span style={{ fontSize: size * 0.25, fontWeight: 900, color: '#1A0A2E', lineHeight: 1 }}>{val}<span style={{ fontSize: '0.4em', color: '#9B6B8A' }}>%</span></span>
-        </div>
-      </div>
-    );
-  };
+  // Display severity text & color helper
+  const rawSeverity = String(riskAssessment.severity || level || 'Low');
+  const severityNorm = rawSeverity.toLowerCase();
+  const severityTextColor = severityNorm === 'high' ? '#BE123C' :
+                            severityNorm === 'moderate' ? '#92400E' :
+                            '#065F46';
+  const severityBgColor = severityNorm === 'high' ? 'rgba(225,29,72,0.12)' :
+                          severityNorm === 'moderate' ? 'rgba(245,158,11,0.14)' :
+                          'rgba(5,150,105,0.12)';
+
+  const isElevatedRisk = severityNorm === 'high' || severityNorm === 'moderate' || rawLevel === 'high' || rawLevel === 'moderate';
 
   return (
-    <div ref={reportRef} style={{
+    <div style={{
       maxWidth: 900, margin: '0 auto', padding: '40px 24px 80px',
       fontFamily: '"Plus Jakarta Sans", "Inter", sans-serif',
       color: '#1A0A2E'
@@ -98,7 +144,9 @@ const Results = ({ riskAssessment, setActiveTab }) => {
           Your Health Analysis
         </h2>
         <p style={{ fontSize: '1.05rem', color: '#6B2A5F', maxWidth: 600, lineHeight: 1.6 }}>
-          Based on our dual-model AI evaluation of your clinical profile and ultrasound data.
+          {imageProvided
+            ? "Based on our dual-model AI evaluation of your clinical profile and ultrasound scan."
+            : "Based on our AI evaluation of your clinical profile only."}
         </p>
       </div>
 
@@ -110,7 +158,7 @@ const Results = ({ riskAssessment, setActiveTab }) => {
         border: `1px solid ${bgGradients[0]}`,
         boxShadow: `0 24px 48px -12px ${bgGradients[0]}`,
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 32,
-        marginBottom: 32,
+        marginBottom: 16,
         opacity: animate ? 1 : 0, transform: animate ? 'scale(1)' : 'scale(0.95)',
         transition: 'all 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s'
       }}>
@@ -119,11 +167,11 @@ const Results = ({ riskAssessment, setActiveTab }) => {
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 16px', background: bgGradients[0], borderRadius: 999, marginBottom: 24 }}>
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: themeColor, boxShadow: `0 0 10px ${themeColor}` }} />
             <span style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: themeColor }}>
-              {level} Risk Detected
+              Risk level: {level}
             </span>
           </div>
           
-          <CircleProgress val={score || 0} size={220} stroke={16} color={themeColor} delay={0.2} />
+          <CircleProgress val={score || 0} size={220} stroke={16} color={themeColor} delay={0.2} animate={animate} label="Overall Risk Score" />
           
           <div style={{ marginTop: 24, fontSize: '0.9rem', color: '#6B2A5F', fontWeight: 600 }}>
             Overall Risk Score
@@ -133,7 +181,7 @@ const Results = ({ riskAssessment, setActiveTab }) => {
         {/* Detailed Scores Split */}
         <div style={{ display: 'flex', width: '100%', gap: 24, marginTop: 16 }}>
           <div style={{ flex: 1, padding: '20px', borderRadius: 20, background: 'rgba(255,255,255,0.8)', border: '1px solid rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: 20 }}>
-            <CircleProgress val={tabular_score || 0} size={70} stroke={6} color="#7C3AED" delay={0.4} />
+            <CircleProgress val={tabular_score || 0} size={70} stroke={6} color="#7C3AED" delay={0.4} animate={animate} label="Clinical Score" />
             <div>
               <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#1A0A2E' }}>Clinical Score</div>
               <div style={{ fontSize: '0.8rem', color: '#9B6B8A', marginTop: 4 }}>Based on symptoms & lifestyle</div>
@@ -142,7 +190,7 @@ const Results = ({ riskAssessment, setActiveTab }) => {
           <div style={{ flex: 1, padding: '20px', borderRadius: 20, background: 'rgba(255,255,255,0.8)', border: '1px solid rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: 20 }}>
             {imageProvided ? (
               <>
-                <CircleProgress val={image_score || 0} size={70} stroke={6} color="#EC4899" delay={0.6} />
+                <CircleProgress val={image_score || 0} size={70} stroke={6} color="#EC4899" delay={0.6} animate={animate} label="Ultrasound Score" />
                 <div>
                   <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#1A0A2E' }}>Ultrasound Score</div>
                   <div style={{ fontSize: '0.8rem', color: '#9B6B8A', marginTop: 4 }}>Based on image analysis</div>
@@ -164,12 +212,19 @@ const Results = ({ riskAssessment, setActiveTab }) => {
             background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)',
             display: 'flex', alignItems: 'center', gap: 12
           }}>
-            <Ic n="alert" s={20} c="#D97706" />
+            <Ic n="alert" s={20} c="#B45309" />
             <span style={{ fontSize: '0.88rem', color: '#92400E', fontWeight: 600, lineHeight: 1.5 }}>
-              Limited input, low reliability notice: Clinical input was mostly missing.
+              Limited input notice: Clinical input was mostly missing or incomplete ({Math.round((riskAssessment.input_completeness ?? 0) * 100)}% provided). Results should be interpreted with caution.
             </span>
           </div>
         )}
+      </div>
+
+      {/* ── ONE-LINE SHORT DISCLAIMER DIRECTLY UNDER SCORE CARD ── */}
+      <div style={{
+        fontSize: '0.82rem', color: '#6B2A5F', textAlign: 'center', marginBottom: 32, fontStyle: 'italic', lineHeight: 1.5
+      }}>
+        ⚠️ Screening estimate only — not a formal medical diagnosis. Consult a physician for clinical evaluation.
       </div>
 
       {/* ── GRAD-CAM EXPLAINABLE AI HEATMAP CARD ── */}
@@ -186,32 +241,37 @@ const Results = ({ riskAssessment, setActiveTab }) => {
             </div>
             <div>
               <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0 }}>Explainable AI Vision Heatmap</h3>
-              <p style={{ fontSize: '0.8rem', color: '#9B6B8A', margin: 0 }}>Grad-CAM gradient visual overlay of detected ovarian features</p>
+              <p style={{ fontSize: '0.8rem', color: '#9B6B8A', margin: 0 }}>Grad-CAM gradient visual overlay of model focus regions</p>
             </div>
           </div>
 
           <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap', marginTop: 16 }}>
             <div style={{ borderRadius: 16, overflow: 'hidden', border: '2px solid rgba(124,58,237,0.2)', width: 220, height: 220, flexShrink: 0 }}>
-              <img src={heatmap_image} alt="Grad-CAM Ovarian Heatmap" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <img
+                src={heatmap_image}
+                alt="Grad-CAM explainability heatmap overlay showing regions of the ovarian ultrasound that influenced the AI prediction"
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
             </div>
             <div style={{ flex: 1, minWidth: 240 }}>
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '4px 12px', background: 'rgba(236,72,153,0.1)', borderRadius: 999, marginBottom: 10 }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#EC4899', textTransform: 'uppercase' }}>Red / Yellow Regions</span>
+                <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#EC4899', textTransform: 'uppercase' }}>Attention Map</span>
               </div>
               <p style={{ fontSize: '0.88rem', color: '#4A1D4E', lineHeight: 1.6, margin: 0 }}>
-                The highlighted warm areas indicate where the Convolutional Neural Network identified characteristic ovarian tissue textures and cyst patterns.
+                The colored areas show which parts of the image most influenced the model's score. This is not a clinical finding and may not correspond to specific structures.
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── DIAGNOSIS & CONFIDENCE ── */}
+      {/* ── AI RISK ASSESSMENT & OVERALL RISK SCORE CARDS ── */}
       <div style={{
         display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24, marginBottom: 32,
         opacity: animate ? 1 : 0, transform: animate ? 'translateY(0)' : 'translateY(20px)',
         transition: 'all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.2s'
       }}>
+        {/* Left Card: AI Risk Assessment */}
         <div style={{
           padding: '28px', borderRadius: 24, background: 'white',
           border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 12px 24px -12px rgba(0,0,0,0.05)'
@@ -220,57 +280,91 @@ const Results = ({ riskAssessment, setActiveTab }) => {
             <div style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(124,58,237,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Ic n="steth" s={20} c="#7C3AED"/>
             </div>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0 }}>AI Diagnosis</h3>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0 }}>AI risk assessment</h3>
           </div>
-          <p style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1A0A2E', lineHeight: 1.5, margin: '0 0 12px 0' }}>
+          <p style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1A0A2E', lineHeight: 1.5, margin: '0 0 14px 0' }}>
             {diagnosis || "Assessment complete. Please refer to your doctor."}
           </p>
-          {riskAssessment.severity && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: '0.85rem', color: '#6B7280', fontWeight: 600 }}>Severity Level:</span>
             <span style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
               padding: '6px 14px', borderRadius: 999, fontSize: '0.8rem', fontWeight: 800,
               textTransform: 'uppercase', letterSpacing: '0.06em',
-              background: riskAssessment.severity === 'High' ? 'rgba(225,29,72,0.1)' :
-                          riskAssessment.severity === 'Moderate' ? 'rgba(245,158,11,0.1)' :
-                          riskAssessment.severity === 'Low' ? 'rgba(234,179,8,0.1)' :
-                          'rgba(5,150,105,0.1)',
-              color: riskAssessment.severity === 'High' ? '#E11D48' :
-                     riskAssessment.severity === 'Moderate' ? '#D97706' :
-                     riskAssessment.severity === 'Low' ? '#CA8A04' :
-                     '#059669'
+              background: severityBgColor,
+              color: severityTextColor
             }}>
-              <div style={{
-                width: 6, height: 6, borderRadius: '50%',
-                background: riskAssessment.severity === 'High' ? '#E11D48' :
-                             riskAssessment.severity === 'Moderate' ? '#D97706' :
-                             riskAssessment.severity === 'Low' ? '#CA8A04' :
-                             '#059669'
-              }} />
-              {riskAssessment.severity} Risk
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: severityTextColor }} />
+              {rawSeverity} Risk
             </span>
-          )}
+          </div>
         </div>
 
+        {/* Right Card: Overall risk score (colored with theme color) */}
         <div style={{
           padding: '28px', borderRadius: 24, background: 'white',
           border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 12px 24px -12px rgba(0,0,0,0.05)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(5,150,105,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Ic n="check" s={20} c="#059669"/>
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: bgGradients[0], display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Ic n="check" s={20} c={themeColor}/>
             </div>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0 }}>Model Confidence</h3>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0 }}>Overall risk score</h3>
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-            <span style={{ fontSize: '2.5rem', fontWeight: 900, color: '#059669', lineHeight: 1 }}>{confidence ? Math.round(confidence) : score}%</span>
+            <span style={{ fontSize: '2.5rem', fontWeight: 900, color: themeColor, lineHeight: 1 }}>
+              {overallRiskScore}%
+            </span>
           </div>
-          <p style={{ fontSize: '0.85rem', color: '#9B6B8A', margin: 0 }}>
+          <p style={{ fontSize: '0.85rem', color: '#9B6B8A', margin: 0, lineHeight: 1.5 }}>
             {imageProvided
               ? "Weighted heuristic fusion of clinical data (60%) and ultrasound imaging (40%)."
               : "Based on clinical data only"}
           </p>
         </div>
       </div>
+
+      {/* ── ELEVATED RISK NEXT STEPS & URGENT CARE GUIDANCE ── */}
+      {isElevatedRisk && (
+        <div style={{
+          padding: '24px 28px', borderRadius: 20, marginBottom: 32,
+          background: 'rgba(225,29,72,0.04)', border: '1px solid rgba(225,29,72,0.2)',
+          display: 'flex', flexDirection: 'column', gap: 16,
+          opacity: animate ? 1 : 0, transform: animate ? 'translateY(0)' : 'translateY(15px)',
+          transition: 'all 0.5s ease 0.25s'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 38, height: 38, borderRadius: 12, background: 'rgba(225,29,72,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Ic n="steth" s={20} c="#BE123C" />
+            </div>
+            <div>
+              <h4 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#881337', margin: 0 }}>Recommended Next Step</h4>
+              <p style={{ fontSize: '0.82rem', color: '#9F1239', margin: '2px 0 0 0' }}>Consultation guidance for elevated risk findings</p>
+            </div>
+          </div>
+
+          <p style={{ fontSize: '0.9rem', color: '#4C0519', lineHeight: 1.6, margin: 0 }}>
+            Because your evaluation suggests moderate or higher risk patterns, we strongly recommend sharing this assessment report with a healthcare specialist for formal clinical evaluation. <strong>Please seek urgent medical care immediately if you experience severe pelvic pain or very heavy bleeding.</strong>
+          </p>
+
+          <button
+            onClick={() => setActiveTab && setActiveTab('doctors')}
+            style={{
+              alignSelf: 'flex-start',
+              padding: '12px 24px', borderRadius: 999, border: 'none',
+              background: 'linear-gradient(135deg, #BE123C, #9F1239)', color: 'white',
+              fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+              boxShadow: '0 4px 14px rgba(190,18,60,0.25)',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 6px 18px rgba(190,18,60,0.35)'; }}
+            onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(190,18,60,0.25)'; }}
+          >
+            <Ic n="steth" s={16} c="white" /> Talk to a gynecologist
+          </button>
+        </div>
+      )}
 
       {/* ── IMAGE CONFIDENCE WARNING ── */}
       {riskAssessment.image_confidence_note && (
@@ -281,7 +375,7 @@ const Results = ({ riskAssessment, setActiveTab }) => {
           opacity: animate ? 1 : 0, transform: animate ? 'translateY(0)' : 'translateY(10px)',
           transition: 'all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.25s'
         }}>
-          <Ic n="alert" s={20} c="#D97706" />
+          <Ic n="alert" s={20} c="#B45309" />
           <div>
             <div style={{ fontWeight: 800, fontSize: '0.9rem', color: '#92400E', marginBottom: 4 }}>Ultrasound Analysis Note</div>
             <p style={{ fontSize: '0.85rem', color: '#78350F', margin: 0, lineHeight: 1.6 }}>
@@ -315,7 +409,7 @@ const Results = ({ riskAssessment, setActiveTab }) => {
         <div style={{ marginTop: 20, padding: '16px', background: 'rgba(5,150,105,0.05)', borderRadius: 12, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
           <Ic n="alert" s={20} c="#059669" />
           <p style={{ fontSize: '0.8rem', color: '#064e3b', margin: 0, lineHeight: 1.5 }}>
-            <strong>Medical Disclaimer:</strong> SHEra is an AI assistive tool and does not provide medical diagnosis or treatment. Always consult a qualified healthcare professional before making any medical decisions.
+            <strong>Medical Disclaimer:</strong> SHEra is an AI assistive screening tool and does not provide clinical medical diagnosis or treatment plans. Always consult a qualified physician or healthcare provider regarding any health condition or diagnostic test.
           </p>
         </div>
       </div>
@@ -328,7 +422,7 @@ const Results = ({ riskAssessment, setActiveTab }) => {
       }}>
         <PDFDownloadLink
           document={<ClinicalReportPDF data={riskAssessment} />}
-          fileName={`${(riskAssessment.patientName || (riskAssessment.formData && riskAssessment.formData.name)) ? (riskAssessment.patientName || riskAssessment.formData.name).split(' ').join('_') : 'Patient'}-Clinical_report.pdf`}
+          fileName={sanitizedPdfFileName}
           style={{ textDecoration: 'none' }}
         >
           {({ loading }) => (

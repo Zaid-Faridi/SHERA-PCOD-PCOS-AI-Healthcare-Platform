@@ -26,7 +26,7 @@ export async function apiRequest(endpoint, options = {}) {
         token = u?.token;
       }
     }
-  } catch (e) {
+  } catch {
     // Ignore storage parse issues
   }
 
