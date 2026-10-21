@@ -1,4 +1,5 @@
 import React from 'react';
+import { apiRequest } from '../../api';
 
 const Assessment = ({ userData, setUserData, symptomOptions, lifestyleOptions, calculateBMI, assessRisk }) => {
   const [result, setResult] = React.useState(null);
@@ -14,13 +15,13 @@ const Assessment = ({ userData, setUserData, symptomOptions, lifestyleOptions, c
     setLoading(true);
     setResult(null);
     const age = userData.age || 25;
-    const bmi = userData.weight && userData.height ? (userData.weight / ((userData.height/100) * (userData.height/100))) : 22;
     const cycle = userData.cycleRegularity === 'regular' ? 28 : 35;
     const ratio = 1.5; // placeholder ratio
     
     const formData = {
       age,
-      bmi,
+      height: userData.height,
+      weight: userData.weight,
       cycle,
       ratio
     };
@@ -28,14 +29,10 @@ const Assessment = ({ userData, setUserData, symptomOptions, lifestyleOptions, c
     console.log("Sending:", formData);
 
     try {
-      const response = await fetch("http://127.0.0.1:5000/api/predict/combined", {
+      const data = await apiRequest('/api/assess', {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
         body: JSON.stringify(formData)
       });
-      const data = await response.json();
       console.log("Response:", data);
       
       setResult(data);
@@ -48,11 +45,12 @@ const Assessment = ({ userData, setUserData, symptomOptions, lifestyleOptions, c
         });
       }, 100);
     } catch (err) {
-      console.error(err);
+      console.error('Assessment error:', err);
     } finally {
       setLoading(false);
     }
   };
+
 
   const handleSymptomChange = (symptom) => {
     setUserData(prev => {

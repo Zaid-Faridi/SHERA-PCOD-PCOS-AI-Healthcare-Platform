@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { apiRequest } from '../../api';
 
 /* ─────────────────────────────────────────────────
    ICON SYSTEM
@@ -268,13 +269,10 @@ const Onboarding = ({ setActiveTab, setUserData, imageFile, setImageFile, setRis
       }
       payloadData.append('clinical_data', JSON.stringify(payload));
 
-      const response = await fetch('http://localhost:5000/api/predict/combined', {
+      const data = await apiRequest('/api/assess', {
         method: 'POST',
         body: payloadData
       });
-      
-      const data = await response.json();
-      if (data.error) throw new Error(data.error);
 
       let riskLevel = "Low";
       if (data.risk_score > 70) riskLevel = "High";

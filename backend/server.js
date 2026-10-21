@@ -11,6 +11,7 @@ const userRoutes = require('./routes/userRoutes');
 const healthDataRoutes = require('./routes/healthDataRoutes');
 const doctorRoutes = require('./routes/doctorRoutes');
 const communityRoutes = require('./routes/communityRoutes');
+const assessmentRoutes = require('./routes/assessmentRoutes');
 
 // Validate critical environment variables at startup
 function validateEnv() {
@@ -91,6 +92,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/health', healthDataRoutes);
 app.use('/api/doctors', doctorRoutes);
 app.use('/api/community', communityRoutes);
+app.use('/api/assess', assessmentRoutes);
 
 // Root route
 app.get('/', (req, res) => {

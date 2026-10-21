@@ -70,7 +70,7 @@ const HealthDataSchema = new mongoose.Schema({
     },
     level: {
       type: String,
-      enum: ['low', 'moderate', 'high']
+      enum: ['minimal', 'low', 'moderate', 'high']
     },
     factors: [{
       type: String
