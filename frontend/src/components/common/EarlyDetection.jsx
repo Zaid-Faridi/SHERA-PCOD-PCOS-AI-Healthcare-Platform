@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { apiRequest } from '../../api';
 
 /* ─────────────────────────────────────────────────
    ICON SYSTEM
@@ -305,55 +306,33 @@ const EarlyDetection = ({ userData, setActiveTab, imageFile, setImageFile }) => 
       formData.append('file', imageFile);
       formData.append('clinical_data', JSON.stringify(payload));
 
-      const response = await fetch('http://localhost:5000/api/predict/combined', {
-        method: 'POST',
-        body: formData
-      });
-      const data = await response.json();
-      
-      // Handle invalid image error (non-ultrasound upload)
-      if (data.error === 'invalid_image') {
-        setResult({ 
-          score: 0, 
-          level: "Error", 
-          recommendation: "⚠️ Invalid Image Upload\n\n" + data.message + "\n\n💡 " + (data.suggestion || "Please upload a valid ovarian ultrasound scan.")
+      let data;
+      try {
+        data = await apiRequest('/api/assess', {
+          method: 'POST',
+          body: formData
         });
-        setLoading(false);
-        return;
+      } catch (err) {
+        if (err.data && err.data.error === 'invalid_image') {
+          setResult({ 
+            score: 0, 
+            level: "Error", 
+            recommendation: "⚠️ Invalid Image Upload\n\n" + (err.data.message || err.message) + "\n\n💡 " + (err.data.suggestion || "Please upload a valid ovarian ultrasound scan.")
+          });
+          setLoading(false);
+          return;
+        }
+        throw err;
       }
-      if (data.error) throw new Error(data.error);
 
       // Use severity from backend directly for risk level
       const riskLevel = data.severity === 'High' ? 'High' : 
-                        data.severity === 'Moderate' ? 'Moderate' : 'Low';
+                        data.severity === 'Moderate' ? 'Moderate' : 
+                        data.severity === 'Minimal' ? 'Low' : 'Low';
 
       let recommendation = data.message + ". " + getRiskRecommendation(riskLevel);
       if (data.image_confidence_note) {
         recommendation += "\n\n⚠️ " + data.image_confidence_note;
-      }
-
-      // Save diagnostic run to MongoDB if logged in
-      const token = localStorage.getItem('token');
-      if (token) {
-        try {
-          await fetch('http://localhost:5001/api/health/save-diagnostic', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-              score: Math.round(data.risk_score),
-              level: riskLevel,
-              diagnosis: data.diagnosis,
-              severity: data.severity,
-              tabular_score: Math.round(data.tabular_risk),
-              image_score: Math.round(data.image_risk)
-            })
-          });
-        } catch (e) {
-          console.warn("Failed to persist diagnostic run to MongoDB:", e);
-        }
       }
 
       setResult({

@@ -225,50 +225,14 @@ router.post('/risk-assessment', verifyToken, validateRiskAssessment, async (req,
 });
 
 // @route   POST /api/health/save-diagnostic
-// @desc    Save AI combined diagnostic assessment run (atomic push with slice to latest 100)
+// @desc    Deprecated: Diagnostics are now automatically saved server-side via POST /api/assess
 // @access  Private
-router.post('/save-diagnostic', verifyToken, async (req, res) => {
-  try {
-    const { score, level, diagnosis, severity, tabular_score, image_score } = req.body;
-    await HealthData.getOrCreate(req.userId);
-
-    const diagnosticEntry = {
-      score,
-      level,
-      diagnosis,
-      severity,
-      tabular_score,
-      image_score,
-      date: new Date()
-    };
-
-    const healthData = await HealthData.findOneAndUpdate(
-      { user: req.userId },
-      {
-        $push: {
-          diagnosticHistory: {
-            $each: [diagnosticEntry],
-            $slice: -100
-          }
-        },
-        $set: {
-          riskAssessment: {
-            score,
-            level: level ? String(level).toLowerCase() : 'low',
-            factors: [diagnosis, `Severity: ${severity}`].filter(Boolean),
-            lastUpdated: new Date()
-          }
-        }
-      },
-      { new: true }
-    );
-
-    res.json(healthData);
-  } catch (error) {
-    console.error('Save diagnostic error:', error);
-    res.status(500).json({ message: 'Server error saving diagnostic assessment' });
-  }
+router.post('/save-diagnostic', verifyToken, (req, res) => {
+  res.status(410).json({
+    message: 'Deprecated: Diagnostic assessments are now saved server-side via POST /api/assess.'
+  });
 });
+
 
 // @route   GET /api/health/export
 // @desc    Export user's own profile and health records as JSON
