@@ -4,7 +4,9 @@ const HealthDataSchema = new mongoose.Schema({
   user: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: true,
+    unique: true,
+    index: true
   },
   cycleData: [{
     startDate: {
@@ -93,5 +95,31 @@ const HealthDataSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+/**
+ * Static method to atomically fetch or create a user's HealthData record.
+ * Uses findOneAndUpdate with upsert to prevent duplicate record race conditions.
+ * @param {string|mongoose.Types.ObjectId} userId
+ */
+HealthDataSchema.statics.getOrCreate = async function (userId) {
+  return await this.findOneAndUpdate(
+    { user: userId },
+    {
+      $setOnInsert: {
+        user: userId,
+        cycleData: [],
+        symptoms: [],
+        lifestyleFactors: {},
+        riskAssessment: {},
+        diagnosticHistory: []
+      }
+    },
+    {
+      new: true,
+      upsert: true,
+      setDefaultsOnInsert: true
+    }
+  );
+};
 
 module.exports = mongoose.model('HealthData', HealthDataSchema);
