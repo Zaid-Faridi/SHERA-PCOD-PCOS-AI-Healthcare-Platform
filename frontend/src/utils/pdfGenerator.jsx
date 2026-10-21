@@ -192,7 +192,7 @@ export const ClinicalReportPDF = ({ data }) => {
   const tabular_score = d.tabular_score || 38;
   const image_score = d.image_score || 100;
   const confidence = d.confidence || 94;
-  const diagnosis = d.diagnosis || "PCOS/PCOD Possible";
+  const diagnosis = d.diagnosis || "Moderate risk";
   const heatmap_image = d.heatmap_image || null;
 
   const labValues = d.labValues || {

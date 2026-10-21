@@ -142,10 +142,10 @@ const Assessment = ({ userData, setUserData, symptomOptions, lifestyleOptions, c
           <div className="mt-6 p-6 rounded-xl bg-[#0f2a36] shadow-lg border border-teal-500/20">
             <h2 className="text-2xl font-bold text-teal-400 mb-4">Prediction Result</h2>
             <p className="text-white text-lg mb-2">
-              Diagnosis:{' '}
+              Risk Level:{' '}
               <span className={`font-semibold ${
-                result.diagnosis === 'PCOS' ? 'text-red-400' :
-                result.diagnosis === 'PCOD' ? 'text-pink-400' :
+                result.diagnosis?.toLowerCase().includes('higher') || result.diagnosis === 'PCOS' ? 'text-red-400' :
+                result.diagnosis?.toLowerCase().includes('moderate') || result.diagnosis === 'PCOD' ? 'text-pink-400' :
                 'text-green-400'
               }`}>
                 {result.diagnosis}

@@ -35,6 +35,11 @@ const Results = ({ riskAssessment, setActiveTab }) => {
   if (!riskAssessment) return null;
 
   const { score, level, tabular_score, image_score, diagnosis, confidence, recommendation, heatmap_image } = riskAssessment;
+  const imageProvided = riskAssessment.image_provided !== false && riskAssessment.image_score !== null && riskAssessment.image_score !== undefined;
+  const isMostlyMissing = Boolean(
+    riskAssessment.limited_input ||
+    (riskAssessment.formData && Object.values(riskAssessment.formData).filter(v => v !== null && v !== undefined && v !== '' && v !== false).length < 4)
+  );
 
   // Determine colors based on risk level
   let themeColor = '#059669'; // Low (Emerald)
@@ -135,13 +140,36 @@ const Results = ({ riskAssessment, setActiveTab }) => {
             </div>
           </div>
           <div style={{ flex: 1, padding: '20px', borderRadius: 20, background: 'rgba(255,255,255,0.8)', border: '1px solid rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: 20 }}>
-            <CircleProgress val={image_score || 0} size={70} stroke={6} color="#EC4899" delay={0.6} />
-            <div>
-              <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#1A0A2E' }}>Ultrasound Score</div>
-              <div style={{ fontSize: '0.8rem', color: '#9B6B8A', marginTop: 4 }}>Based on image analysis</div>
-            </div>
+            {imageProvided ? (
+              <>
+                <CircleProgress val={image_score || 0} size={70} stroke={6} color="#EC4899" delay={0.6} />
+                <div>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#1A0A2E' }}>Ultrasound Score</div>
+                  <div style={{ fontSize: '0.8rem', color: '#9B6B8A', marginTop: 4 }}>Based on image analysis</div>
+                </div>
+              </>
+            ) : (
+              <div>
+                <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#6B7280' }}>Ultrasound Scan</div>
+                <div style={{ fontSize: '0.85rem', color: '#9B6B8A', marginTop: 4 }}>Based on clinical data only</div>
+              </div>
+            )}
           </div>
         </div>
+
+        {/* Limited Input Notice */}
+        {isMostlyMissing && (
+          <div style={{
+            width: '100%', padding: '14px 20px', borderRadius: 16,
+            background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)',
+            display: 'flex', alignItems: 'center', gap: 12
+          }}>
+            <Ic n="alert" s={20} c="#D97706" />
+            <span style={{ fontSize: '0.88rem', color: '#92400E', fontWeight: 600, lineHeight: 1.5 }}>
+              Limited input, low reliability notice: Clinical input was mostly missing.
+            </span>
+          </div>
+        )}
       </div>
 
       {/* ── GRAD-CAM EXPLAINABLE AI HEATMAP CARD ── */}
@@ -237,7 +265,9 @@ const Results = ({ riskAssessment, setActiveTab }) => {
             <span style={{ fontSize: '2.5rem', fontWeight: 900, color: '#059669', lineHeight: 1 }}>{confidence ? Math.round(confidence) : score}%</span>
           </div>
           <p style={{ fontSize: '0.85rem', color: '#9B6B8A', margin: 0 }}>
-            Weighted fusion of clinical data (60%) and ultrasound imaging (40%).
+            {imageProvided
+              ? "Weighted heuristic fusion of clinical data (60%) and ultrasound imaging (40%)."
+              : "Based on clinical data only"}
           </p>
         </div>
       </div>

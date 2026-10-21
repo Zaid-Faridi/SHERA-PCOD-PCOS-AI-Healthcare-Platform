@@ -46,22 +46,22 @@ The heart of SHEra is its proprietary AI engine. It evaluates both clinical hist
 *   **Symptom Mapping:** Tracks physical symptoms (acne, hair loss, hirsutism, weight gain) and cycle regularity.
 *   **Hormonal Metrics:** Evaluates hormonal balances (FSH, LH, AMH).
 *   **Vitals:** Incorporates blood pressure, glucose, and body metrics (BMI, Waist:Hip Ratio).
-*   **Lab Report Integration:** Users can optionally input exact clinical lab metrics. Unprovided features fallback to intelligent population medians to ensure accuracy without forcing users to have immediate lab results.
-*   **Ultrasound Analysis (CNN):** A deep Convolutional Neural Network visually inspects pelvic ultrasound scans for ovarian cysts.
-*   **Weighted AI Fusion Scoring:** Merges outputs (`Clinical Data 60%` + `Visual Scan 40%`) into a unified, highly accurate risk score.
-*   **Severity-Tiered Classification:** Seamlessly classifies risk into stages (`PCOS Likely`, `PCOS/PCOD Possible`, `Low Risk - Monitor`, `Normal`).
+*   **Lab Report Integration:** Users can optionally input exact clinical lab metrics. Unprovided or missing features are passed as `NaN` and dynamically imputed at inference time using the scikit-learn `Pipeline` and `SimpleImputer(strategy='median')` learned strictly from the training distribution, preventing data leakage and handling sparse inputs.
+*   **Ultrasound Analysis (CNN):** A deep Convolutional Neural Network visually inspects pelvic ultrasound scans for characteristic follicle textures and patterns.
+*   **Heuristic Multi-Modal Fusion Scoring:** Merges outputs (`Clinical Data 60%` + `Visual Scan 40%`) when an ultrasound scan is provided, or evaluates at 100% clinical weighting if omitted. *Note:* This 60/40 weighting is a domain-inspired heuristic; the clinical CSV and ultrasound images originate from completely independent patient cohorts, meaning fusion weights cannot be validated or learned end-to-end.
+*   **Severity-Tiered Risk Levels:** Classifies screening outputs into non-diagnostic risk categories (`Higher risk - consult a doctor`, `Moderate risk`, `Low risk - monitor`, `Minimal risk`).
 
 ### 2. 🔍 Explainable AI & Trust
 We believe AI in healthcare must be transparent.
-*   **Grad-CAM Heatmaps:** Generates a visual heatmap overlay on ultrasound uploads.
-*   **Visual Proof:** Highlights exactly which regions of the ultrasound (e.g., specific enlarged follicles) triggered the AI's detection.
+*   **Grad-CAM Heatmaps:** Generates a visual heatmap overlay on ultrasound uploads targeting the probability of PCOS findings.
+*   **Visual Localization:** Highlights which regions of the ultrasound (e.g., specific peripheral follicle clusters) triggered the AI's detection.
 *   **Confidence Scoring:** Provides an exact confidence percentage and clinical severity level.
 
 ### 3. 🛡️ Smart Ultrasound Image Guardrail
-A built-in safety mechanism to ensure the AI isn't fed junk data.
-*   **Grayscale Dominance Check:** Rejects colorful photos (like selfies).
-*   **Background Ratio Check:** Evaluates pixel darkness to confirm authentic medical imaging characteristics.
-*   **Real-time Rejection:** Returns immediate API feedback if a user uploads a document or landscape photo instead of an ultrasound.
+A built-in rule-based safety mechanism to screen uploaded images.
+*   **Grayscale Dominance Check:** Evaluates color saturation (threshold ≤ 0.18) to reject colorful photos (like selfies, documents).
+*   **Background Ratio Check:** Evaluates pixel darkness (threshold ≥ 0.10) to confirm typical ultrasound dark acoustic backgrounds.
+*   **Guardrail Limitations:** Because this safety filter is rule-based, it can reject valid scans (e.g., contrast-enhanced or color Doppler scans) or accept non-ultrasound grayscale images (e.g., grayscale photos or sketches). Real-time API feedback is returned if an upload is rejected.
 
 ### 4. 📝 Premium Clinical Onboarding
 A beautiful, interactive profile builder that creates a complete health baseline.
@@ -142,9 +142,58 @@ SHEra utilizes a **Microservices-inspired Dual-Backend Architecture** to ensure 
 *   **Framework:** Flask & Flask-CORS
 *   **Machine Learning:** TensorFlow/Keras, Scikit-Learn
 *   **Data Processing:** Pandas, NumPy, OpenCV (cv2)
-*   **Models:**
-    *   **Tabular Model:** `tabular_model.pkl` (Random Forest Classifier)
-    *   **Image Model:** `image_model.h5` (Convolutional Neural Network)
+*   **Models & Artifacts:**
+    *   **Tabular Pipeline:** `models/tabular_model.pkl` (`SimpleImputer` + balanced `RandomForestClassifier`), `models/tabular_features.pkl`, `models/tabular_metrics.json`
+    *   **Ultrasound Model:** `models/image_model.keras` (primary native Keras 3 format), `models/image_model.h5` (legacy fallback), `models/class_names.json`, `models/image_metrics.json`
+
+---
+
+## 📈 Model Performance & Metrics
+
+Model metrics are exported automatically during training to `models/tabular_metrics.json` and `models/image_metrics.json`.
+
+### 1. Clinical Tabular Model (Random Forest Pipeline)
+- **Architecture:** scikit-learn `Pipeline` composed of `SimpleImputer(strategy='median')` followed by `RandomForestClassifier(n_estimators=100, class_weight='balanced', random_state=42)`.
+- **Holdout Test Set Performance (20% Stratified Split):**
+  - **Accuracy:** `90.83%` (99/109 correct)
+  - **ROC-AUC Score:** `0.9414`
+  - **PCOS Positive Class (1):** Precision: `0.8824`, Recall: `0.8333`, F1-Score: `0.8571` (Support: 36)
+  - **Normal Class (0):** Precision: `0.9200`, Recall: `0.9452`, F1-Score: `0.9324` (Support: 73)
+  - **Confusion Matrix:** 69 True Negatives, 4 False Positives, 6 False Negatives, 30 True Positives.
+- **5-Fold Stratified Cross-Validation:**
+  - **Mean ROC-AUC:** `0.9607 ± 0.0121`
+  - **Mean Recall:** `0.8475 ± 0.0797`
+- **Top Predictive Features (Gini Importance):**
+  1. `Follicle No. (R)`: `17.17%`
+  2. `Follicle No. (L)`: `13.44%`
+  3. `hair growth(Y/N)`: `5.52%`
+  4. `Cycle(R/I)`: `4.74%`
+  5. `weight gain(Y/N)`: `4.62%`
+  6. `Fast food (Y/N)`: `3.81%`
+  7. `Skin darkening (Y/N)`: `3.48%`
+
+### 2. Ultrasound Vision Model (Custom CNN)
+- **Architecture:** 4-stage convolutional neural network (`Conv2D` 32 -> 64 -> 64 -> 128 filters with ReLU, `BatchNormalization`, `MaxPooling2D`), followed by `GlobalAveragePooling2D` (for spatial awareness and Grad-CAM interpretability), `Dropout(0.4)`, `Dense(128)`, and single sigmoid unit output.
+- **Input Dimensions:** `128 x 128 x 3` with internal `Rescaling(1./255)`.
+- **Data Augmentation & Training:** Horizontal random flipping, random rotation (0.1), random zoom (0.1), brightness and contrast jitter (0.1), with `EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)`.
+- **Validation Set Performance (20% Split):**
+  - **ROC-AUC Score:** `0.9820`
+  - **Precision:** `99.36%`
+  - **Recall:** `81.13%`
+  - **F1-Score:** `89.32%`
+  - **Confusion Matrix:** 1019 True Negatives, 7 False Positives, 251 False Negatives, 1079 True Positives.
+
+---
+
+## ⚠️ Known Limitations & Medical Disclaimer
+
+> [!IMPORTANT]
+> **Medical Disclaimer:** SHEra is an assistive AI screening and educational tool. It is **not clinically validated, FDA-cleared, or a certified medical device**. All outputs are preliminary **risk screening levels**, not medical diagnoses. Users should always consult a licensed healthcare professional or gynecologist for diagnostic evaluation and clinical decisions.
+
+1. **Independent Patient Cohorts:** The clinical tabular dataset (541 patients) and the ultrasound image dataset originate from completely separate studies and different individuals. Because matched patient-pair ground truth does not exist across both modalities, the multi-modal fusion cannot be validated or optimized end-to-end.
+2. **Heuristic Fusion Weighting:** The 60% clinical / 40% ultrasound split is an empirical domain heuristic designed to balance systemic clinical markers with imaging evidence.
+3. **Rule-Based Ultrasound Guardrail:** Image validation is based on empirical heuristics (saturation ≤ 0.18, dark background ratio ≥ 0.10). The guardrail may reject valid ultrasound scans (such as color Doppler scans, contrast-enhanced imaging, or heavily annotated reports) or inadvertently accept non-medical grayscale pictures (drawings, black-and-white photography).
+4. **Sparse / Missing Clinical Inputs:** When fewer than 4 clinical inputs are provided, the tabular model defaults to median-imputed values from the training cohort. While safe and non-crashing, the platform flags these results with a "limited input, low reliability" notice.
 
 ---
 
@@ -157,10 +206,51 @@ SHEra utilizes a **Microservices-inspired Dual-Backend Architecture** to ensure 
 *   **Community:** `GET /api/community/posts`, `POST /api/community/create`
 
 ### AI Engine API (`localhost:5000`)
+*   **Health Check:** `GET /api/health`
+    *   Returns service status and whether `tabular_loaded` and `image_loaded` are active.
 *   **Dual Fusion Prediction:** `POST /api/predict/combined`
-    *   Accepts `multipart/form-data` with `file` (image) and `clinical_data` (JSON).
+    *   Accepts `multipart/form-data` with `file` (image) and `clinical_data` (JSON), or a pure JSON payload.
+    *   Returns risk level, severity, model confidence, tabular/image breakdowns, and Grad-CAM heatmap base64 overlay.
 *   **Standalone Image:** `POST /api/predict/image`
 *   **Standalone Tabular:** `POST /api/predict/tabular`
+
+---
+
+## ⚙️ Environment Variables
+
+### Python AI Engine (`pcos-pcod-ai-project/`)
+| Variable | Default | Purpose |
+| :--- | :--- | :--- |
+| `ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:5001` | Comma-separated CORS allowed origins |
+| `AI_SERVICE_KEY` | *(None / Unset)* | Optional shared secret header `X-Service-Key` for service-to-service authentication on `/api/predict/*` |
+| `EPOCHS` | `30` | Maximum training epochs for CNN image retraining |
+
+### Node Backend (`backend/.env`)
+| Variable | Default | Purpose |
+| :--- | :--- | :--- |
+| `PORT` | `5001` | Node Express server listening port |
+| `MONGODB_URI` | `mongodb://127.0.0.1:27017/pcos-pcod-app` | MongoDB connection URI |
+| `JWT_SECRET` | *(secret)* | Secret used to sign and verify user JWT tokens |
+| `AI_SERVICE_URL` | `http://localhost:5000` | Base URL for Python Flask AI engine |
+| `AI_SERVICE_KEY` | *(None / Unset)* | Matching shared secret sent as `X-Service-Key` |
+
+---
+
+## 🔄 Model Retraining
+
+To reproduce or update the trained models:
+
+```bash
+cd pcos-pcod-ai-project
+source venv/bin/activate  # or active Python environment
+
+# 1. Retrain Tabular Random Forest Pipeline with 5-fold CV & metrics export:
+python3 train_tabular.py
+
+# 2. Retrain Custom CNN Ultrasound Model with EarlyStopping & metrics export:
+python3 train_custom_cnn.py
+```
+Trained artifacts and performance summaries are written directly to `pcos-pcod-ai-project/models/`.
 
 ---
 
@@ -202,14 +292,21 @@ npm run dev
 ```
 *Access web interface at `http://localhost:5173`*
 
+### Or run all services with one command:
+```bash
+chmod +x start.sh
+./start.sh
+```
+
 ---
 
 ## 🔒 Security & Privacy Notice
 
 SHEra prioritizes health data security:
 *   Passwords and sessions are protected via strong hashing and secure tokens.
-*   Ultrasound scans uploaded for diagnostic evaluation are processed entirely in temporary memory.
-*   **Images are immediately deleted** from the disk upon completion of the AI analysis. They are never permanently stored, logged, or used for subsequent training.
+*   Ultrasound scans uploaded for diagnostic evaluation are processed entirely in temporary memory using PIL and NumPy memory buffers.
+*   **No images are saved to disk** during inference. They are never permanently stored, logged, or retained for subsequent training.
+*   File uploads are hard-capped at 10 MB (`MAX_CONTENT_LENGTH = 10 * 1024 * 1024`).
 
 ---
 
