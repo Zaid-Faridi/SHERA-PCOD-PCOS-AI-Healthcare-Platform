@@ -14,6 +14,14 @@ import cv2
 app = Flask(__name__)
 CORS(app)  # Allow frontend to access the API
 
+@app.route('/', methods=['GET'])
+def index():
+    return jsonify({"status": "running", "service": "PCOS AI Inference Engine"})
+
+@app.route('/api/health', methods=['GET'])
+def health():
+    return jsonify({"status": "healthy", "service": "PCOS AI Inference Engine"})
+
 # Load the models
 model_dir = "models"
 tabular_model_path = os.path.join(model_dir, "tabular_model.pkl")
@@ -161,6 +169,31 @@ def generate_gradcam_base64(filepath, model):
         print(f"Grad-CAM generation failed: {str(e)}")
         return None
 
+def build_row(data_dict):
+    """
+    Builds a single-row DataFrame matching tabular_features order.
+    Missing, empty (""), None, or non-numeric values are filled with np.nan.
+    Attempts lookup using both raw feature name and stripped feature name.
+    """
+    if not data_dict or not isinstance(data_dict, dict):
+        data_dict = {}
+
+    row_data = {}
+    for feature in tabular_features:
+        val = data_dict.get(feature)
+        if val is None:
+            val = data_dict.get(feature.strip())
+
+        if val is None or val == "":
+            row_data[feature] = [np.nan]
+        else:
+            try:
+                row_data[feature] = [float(val)]
+            except (ValueError, TypeError):
+                row_data[feature] = [np.nan]
+
+    return pd.DataFrame(row_data)
+
 @app.route('/api/predict/tabular', methods=['POST'])
 def predict_tabular():
     if not tabular_model:
@@ -171,25 +204,15 @@ def predict_tabular():
         return jsonify({"error": "No data provided."}), 400
 
     try:
-        # Create a df with 1 row from the input dict
-        # Ensure all columns expected by the model are present
-        input_data = {}
-        for feature in tabular_features:
-            # simple type conversion and fallback
-            val = data.get(feature, 0)
-            if val == "":
-                val = 0
-            input_data[feature] = [float(val)]
-        
-        df = pd.DataFrame.from_dict(input_data)
-        
+        df = build_row(data)
+
         # Predict
         prediction = tabular_model.predict(df)[0]
         probability = tabular_model.predict_proba(df)[0]
-        
+
         result = {
             "prediction": int(prediction),  # 0 or 1
-            "risk_score": float(max(probability) * 100),
+            "risk_score": float(probability[1] * 100),
             "message": "High Risk of PCOS/PCOD" if prediction == 1 else "Low Risk of PCOS/PCOD"
         }
         return jsonify(result)
@@ -260,14 +283,51 @@ def predict_combined():
         
         # 1. Extract data based on Content-Type
         if request.is_json:
-            data = request.json
-            # Basic mapping from simple assessment
-            clinical_data = {
-                "Age (yrs)": data.get("age", 25),
-                "BMI": data.get("bmi", 22),
-                "Cycle(R/I)": 2 if data.get("cycle", 28) <= 35 else 4,
-                "Waist:Hip Ratio": data.get("ratio", 1.0)
-            }
+            data = request.json or {}
+            clinical_data = {}
+
+            def parse_numeric(v):
+                if v is None or v == "":
+                    return None
+                try:
+                    return float(v)
+                except (ValueError, TypeError):
+                    return None
+
+            # Handle age
+            age_raw = data.get("age") if data.get("age") is not None else data.get("Age (yrs)")
+            age_val = parse_numeric(age_raw)
+            if age_val is not None:
+                clinical_data["Age (yrs)"] = age_val
+
+            # Handle bmi
+            bmi_raw = data.get("bmi") if data.get("bmi") is not None else data.get("BMI")
+            bmi_val = parse_numeric(bmi_raw)
+            if bmi_val is not None:
+                clinical_data["BMI"] = bmi_val
+
+            # Handle cycle -> Cycle(R/I): 2 if regular (<= 35 days), 4 if irregular (> 35 days)
+            cycle_raw = data.get("cycle") if data.get("cycle") is not None else data.get("Cycle length(days)")
+            cycle_val = parse_numeric(cycle_raw)
+            if cycle_val is not None:
+                clinical_data["Cycle(R/I)"] = 2 if cycle_val <= 35 else 4
+                clinical_data["Cycle length(days)"] = cycle_val
+            elif "Cycle(R/I)" in data:
+                c_ri = parse_numeric(data.get("Cycle(R/I)"))
+                if c_ri is not None:
+                    clinical_data["Cycle(R/I)"] = c_ri
+
+            # Handle ratio
+            ratio_raw = data.get("ratio") if data.get("ratio") is not None else data.get("Waist:Hip Ratio")
+            ratio_val = parse_numeric(ratio_raw)
+            if ratio_val is not None:
+                clinical_data["Waist:Hip Ratio"] = ratio_val
+
+            # Allow any other tabular features provided directly in JSON
+            for k, v in data.items():
+                if k not in ["age", "bmi", "cycle", "ratio"] and v is not None and v != "":
+                    clinical_data[k] = v
+
         elif 'clinical_data' in request.form:
             import json
             clinical_data = json.loads(request.form.get('clinical_data', '{}'))
@@ -316,32 +376,15 @@ def predict_combined():
         tabular_risk = 50.0
         
         if tabular_model and tabular_features:
-            input_data = {}
-            for feature in tabular_features:
-                # Try multiple possible keys (some have spaces, some don't)
-                val = clinical_data.get(feature)
-                if val is None:
-                    # try stripping spaces
-                    stripped = feature.strip()
-                    val = clinical_data.get(stripped)
-                
-                if val is None:
-                    val = 0
-                
-                try:
-                    input_data[feature] = [float(val)]
-                except:
-                    input_data[feature] = [0.0]
-            
-            df = pd.DataFrame.from_dict(input_data)
+            df = build_row(clinical_data)
             tabular_pred = int(tabular_model.predict(df)[0])
             prob = tabular_model.predict_proba(df)[0]
             # prob[1] = probability of class 1 (PCOS), always use this as risk
             tabular_risk = float(prob[1] * 100)
         else:
             # Mock logic if model not loaded
-            bmi = float(clinical_data.get("BMI", 22))
-            ratio = float(clinical_data.get("Waist:Hip Ratio", 1.0))
+            bmi = float(clinical_data.get("BMI", 22) or 22)
+            ratio = float(clinical_data.get("Waist:Hip Ratio", 1.0) or 1.0)
             tabular_risk = 75.0 if (bmi > 25 or ratio > 1.2) else 25.0
             tabular_pred = 1 if tabular_risk > 50 else 0
 
