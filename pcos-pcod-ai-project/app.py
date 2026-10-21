@@ -579,17 +579,21 @@ def predict_combined():
 
         # 4. Risk-level based diagnosis with severity
         if final_score > 70:
-            diagnosis = "PCOS Likely"
+            diagnosis = "Higher risk - consult a doctor"
             severity = "High"
         elif final_score > 50:
-            diagnosis = "PCOS/PCOD Possible"
+            diagnosis = "Moderate risk"
             severity = "Moderate"
         elif final_score > 30:
-            diagnosis = "Low Risk - Monitor"
+            diagnosis = "Low risk - monitor"
             severity = "Low"
         else:
-            diagnosis = "Normal"
+            diagnosis = "Minimal risk"
             severity = "Minimal"
+
+        # Check for sparse/limited clinical inputs
+        provided_inputs_count = sum(1 for v in clinical_data.values() if v is not None and v != "" and not (isinstance(v, float) and np.isnan(v)))
+        limited_input = bool(provided_inputs_count < 4)
 
         return jsonify({
             "diagnosis": diagnosis,
@@ -599,6 +603,7 @@ def predict_combined():
             "tabular_risk": round(tabular_risk, 2),
             "image_risk": reported_image_risk,
             "image_provided": image_provided,
+            "limited_input": limited_input,
             "image_confidence_note": image_confidence_note,
             "heatmap_image": heatmap_img,
             "message": f"Analysis complete. Risk Level: {severity}. {diagnosis}.",
@@ -609,6 +614,7 @@ def predict_combined():
                 "raw_image_risk": reported_image_risk,
                 "clamped_tabular_risk": round(clamped_tabular_risk, 2),
                 "clamped_image_risk": clamped_image_risk if image_provided else None,
+                "tabular_features_provided": provided_inputs_count,
             }
         })
 

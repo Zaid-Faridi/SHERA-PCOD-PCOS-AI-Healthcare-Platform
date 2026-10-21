@@ -286,7 +286,10 @@ const Onboarding = ({ setActiveTab, setUserData, imageFile, setImageFile, setRis
         image_score: Math.round(data.image_risk),
         level: riskLevel,
         diagnosis: data.diagnosis,
+        severity: data.severity,
         confidence: data.confidence,
+        image_provided: data.image_provided,
+        limited_input: data.limited_input,
         recommendation: data.message,
         formData: formData
       };

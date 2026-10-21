@@ -364,10 +364,13 @@ const EarlyDetection = ({ userData, setActiveTab, imageFile, setImageFile }) => 
         diagnosis: data.diagnosis,
         severity: data.severity,
         confidence: data.confidence,
+        image_provided: data.image_provided,
+        limited_input: data.limited_input,
         image_confidence_note: data.image_confidence_note || "",
         heatmap_image: data.heatmap_image || null,
         recommendation: recommendation,
-        patientName: userData?.name || "Guest User"
+        patientName: userData?.name || "Guest User",
+        formData: formData
       });
     } catch (err) {
       console.error(err);
