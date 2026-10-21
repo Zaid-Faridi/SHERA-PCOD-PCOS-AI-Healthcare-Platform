@@ -7,6 +7,12 @@ venv/
 .venv/
 env/
 .env
+.env.*
+!.env.example
+*.env
+*.key
+*service_key*
+*model_key*
 
 # Build outputs
 dist/
@@ -21,8 +27,16 @@ __pycache__/
 *$py.class
 .pytest_cache/
 pcos-pcod-ai-project/__pycache__/
+
+# Uploads & Temporary Directories
+uploads/
+**/uploads/
 pcos-pcod-ai-project/uploads/*
 !pcos-pcod-ai-project/uploads/.gitkeep
+pcos-pcod-ai-project/debug_gradcam/
+dummy_image.jpg
+frontend/test-*
+
 
 # ML Models
 # Including them as they are small and needed for the app to function

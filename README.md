@@ -177,7 +177,12 @@ cd pcos-pcod-ai-project
 # Optional: Create virtual environment
 # python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
+
+# Development mode:
 python3 app.py
+
+# Production mode (Gunicorn WSGI):
+gunicorn -w 2 -b 0.0.0.0:5000 app:app
 ```
 *App starts on `http://localhost:5000`*
 
